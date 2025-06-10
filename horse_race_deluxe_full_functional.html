@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>🏇 Horse Race Deluxe</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background-color: #f0f8ff;
+      margin: 20px;
+      color: #333;
+    }
+    input, select {
+      margin: 4px;
+      padding: 6px 10px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    button {
+      margin: 8px 4px;
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      background-color: #0078D7;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #005fa3;
+    }
+    .track { display: flex; flex-direction: column; margin-top: 20px; border-top: 2px solid #ccc; padding-top: 15px; }
+    .lane { display: flex; margin-bottom: 10px; align-items: center; }
+    .horse-name { width: 120px; text-align: right; margin-right: 10px; font-weight: bold; }
+    .space {
+      width: 34px;
+      height: 34px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      background-color: #fff;
+      margin-right: 2px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+    }
+    .finish-line { border-right: 4px solid red; }
+    .dice-result, .leaderboard {
+      margin-top: 15px;
+      background-color: #eef;
+      padding: 10px;
+      border: 1px solid #bbd;
+      border-radius: 5px;
+    }
+    .history {
+      margin-top: 20px;
+      max-height: 200px;
+      overflow-y: auto;
+      background-color: #f4f4f4;
+      border-left: 4px solid #ccc;
+      padding: 10px;
+    }
+    .winner-highlight {
+      animation: winnerFlash 1s infinite alternate;
+    }
+    @keyframes winnerFlash {
+      from { background-color: #ffd700; }
+      to { background-color: #ff6347; }
+    }
+    .betting {
+      margin-top: 30px;
+      background: #fff;
+      border: 2px solid #ccc;
+      padding: 10px;
+      border-radius: 10px;
+    }
+    .grid-40 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 10px;
+    }
+    .spectator-leaderboard {
+      margin-top: 15px;
+      padding-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h2>🏇 Horse Race Deluxe</h2>
+  <p>Name your horses, then race with auto-run or dice rolls. First to pass the red line wins!</p>
+
+  <div>
+    <input type="text" id="horse1" placeholder="Horse 1">
+    <input type="text" id="horse2" placeholder="Horse 2">
+    <input type="text" id="horse3" placeholder="Horse 3">
+    <input type="text" id="horse4" placeholder="Horse 4">
+    <input type="text" id="horse5" placeholder="Horse 5">
+    <input type="text" id="horse6" placeholder="Horse 6">
+    <button onclick="submitHorseNames()">✅ Submit Names</button>
+    <br>
+    <button onclick="startRaceWithCountdown()">🏁 Start Race (Auto)</button>
+    <button onclick="rollDice()">🎲 Roll Dice</button>
+    <button onclick="resetRace()">🔄 Reset</button>
+  </div>
+
+  <div class="track" id="raceTrack"></div>
+  <div class="dice-result" id="diceResult">🎲 Dice: -</div>
+  <div class="leaderboard" id="leaderboard">🏆 Leaderboard: None yet
+    <button onclick="resetLeaderboard()">Reset Leaderboard</button>
+  </div>
+  <div class="history" id="historyLog"><strong>🎞️ Turn History:</strong></div>
+
+  <div class="betting">
+    <h3>🎟️ Spectator Betting</h3>
+    Prize Settings:
+    1st: $<input id="firstPrize" type="number" value="5" style="width:40px;">
+    2nd: $<input id="secondPrize" type="number" value="3" style="width:40px;">
+    3rd: $<input id="thirdPrize" type="number" value="1" style="width:40px;">
+    <button onclick="resetSpectators()">Reset Spectator Winnings</button>
+    <div class="grid-40" id="spectatorGrid"></div>
+    <div class="spectator-leaderboard" id="spectatorLeaderboard"><h4>📣 Spectator Standings</h4></div>
+  </div>
+
+  <audio id="diceSound" src="https://www.soundjay.com/misc/sounds/dice-roll-1.mp3"></audio>
+  <audio id="winSound" src="https://www.soundjay.com/human/sounds/applause-8.mp3"></audio>
+  <audio id="countdownSound" src="https://www.soundjay.com/button/beep-07.wav"></audio>
+
+  <script>
+    const NUM_LANES = 6;
+    const NUM_SPACES = 10;
+    const horseColors = ['#e6194b','#3cb44b','#ffe119','#4363d8','#f58231','#911eb4'];
+    const horseEmojis = horseColors.map(c => '<span style="color:' + c + ';">🐎</span>');
+    let horseNames = [];
+    let horsePositions = Array(NUM_LANES).fill(0);
+    let leaderboard = Array(NUM_LANES).fill(0);
+    let spectatorData = [];
+    let intervalId;
+    let raceEnded = false;
+
+    function submitHorseNames() {
+      horseNames = Array.from({length: 6}, (_, i) => document.getElementById('horse'+(i+1)).value || 'Horse ' + (i+1));
+      buildTrack();
+    }
+
+    function buildTrack() {
+      const track = document.getElementById("raceTrack");
+      track.innerHTML = "";
+      for (let i = 0; i < NUM_LANES; i++) {
+        const lane = document.createElement("div");
+        lane.className = "lane";
+        const name = document.createElement("span");
+        name.className = "horse-name";
+        name.textContent = horseNames[i];
+        lane.appendChild(name);
+        for (let j = 0; j <= NUM_SPACES; j++) {
+          const space = document.createElement("div");
+          space.className = "space";
+          if (j === NUM_SPACES) space.classList.add("finish-line");
+          space.id = `lane${i}-space${j}`;
+          lane.appendChild(space);
+        }
+        track.appendChild(lane);
+      }
+    }
+
+    function moveHorse(i) {
+      const old = document.getElementById(`lane${i}-space${horsePositions[i]}`);
+      if (old) old.innerHTML = "";
+      horsePositions[i]++;
+      const pos = horsePositions[i];
+      if (pos <= NUM_SPACES) {
+        document.getElementById(`lane${i}-space${pos}`).innerHTML = horseEmojis[i];
+      } else {
+        declareWinner(i);
+      }
+    }
+
+    function rollDie() {
+      return Math.floor(Math.random() * 6) + 1;
+    }
+
+    function rollDice() {
+      if (raceEnded) return;
+      const rolls = [rollDie(), rollDie(), rollDie()];
+      document.getElementById("diceResult").textContent = `🎲 Dice: ${rolls.join(", ")}`;
+      document.getElementById("diceSound").play();
+      rolls.forEach(r => moveHorse(r-1));
+      logHistory(rolls);
+    }
+
+    function logHistory(rolls) {
+      const log = document.getElementById("historyLog");
+      const div = document.createElement("div");
+      div.textContent = "Rolled: " + rolls.join(", ");
+      log.appendChild(div);
+    }
+
+    function declareWinner(i) {
+      clearInterval(intervalId);
+      raceEnded = true;
+      leaderboard[i]++;
+      updateLeaderboard();
+      document.getElementById("winSound").play();
+      document.getElementById(`lane${i}-space${NUM_SPACES}`).classList.add("winner-highlight");
+      const sorted = horsePositions.map((pos, i) => ({name: horseNames[i], pos, i}))
+                          .sort((a,b) => b.pos - a.pos);
+      scoreSpectators(sorted);
+      alert(`🏁 ${horseNames[i]} wins!`);
+    }
+
+    function startRaceWithCountdown() {
+      resetRace();
+      submitHorseNames();
+      let count = 3;
+      const countdown = setInterval(() => {
+        document.getElementById("countdownSound").play();
+        if (count === 0) {
+          clearInterval(countdown);
+          intervalId = setInterval(rollDice, 1200);
+        } else {
+          alert("Race starting in " + count + "...");
+          count--;
+        }
+      }, 800);
+    }
+
+    function resetRace() {
+      horsePositions = Array(NUM_LANES).fill(0);
+      raceEnded = false;
+      buildTrack();
+      document.getElementById("historyLog").innerHTML = "<strong>🎞️ Turn History:</strong>";
+      document.getElementById("diceResult").textContent = "🎲 Dice: -";
+    }
+
+    function updateLeaderboard() {
+      const html = horseNames.map((n, i) => `${n}: ${leaderboard[i]} wins`).join(" | ");
+      document.getElementById("leaderboard").innerHTML = `🏆 Leaderboard: ${html} <button onclick="resetLeaderboard()">Reset Leaderboard</button>`;
+    }
+
+    function resetLeaderboard() {
+      leaderboard = Array(NUM_LANES).fill(0);
+      updateLeaderboard();
+    }
+
+    function buildSpectatorGrid() {
+      const grid = document.getElementById("spectatorGrid");
+      grid.innerHTML = "";
+      for (let i = 0; i < 40; i++) {
+        const nameInput = `<input id="spec${i}" placeholder="Spectator ${i+1}" />`;
+        const select = `<select id="specBet${i}">${Array.from({length: 6}, (_, j) => `<option value="${j}">Horse ${j+1}</option>`)}</select>`;
+        grid.innerHTML += `<div>${nameInput} bets on ${select}</div>`;
+        spectatorData[i] = {name: "", horse: 0, winnings: 0};
+      }
+    }
+
+    function scoreSpectators(sorted) {
+      const first = sorted[0].i, second = sorted[1]?.i, third = sorted[2]?.i;
+      const prize1 = +document.getElementById("firstPrize").value;
+      const prize2 = +document.getElementById("secondPrize").value;
+      const prize3 = +document.getElementById("thirdPrize").value;
+      for (let i = 0; i < 40; i++) {
+        const name = document.getElementById("spec"+i).value;
+        const horse = +document.getElementById("specBet"+i).value;
+        if (!name.trim()) continue;
+        spectatorData[i].name = name;
+        spectatorData[i].horse = horse;
+        if (horse === first) spectatorData[i].winnings += prize1;
+        else if (horse === second) spectatorData[i].winnings += prize2;
+        else if (horse === third) spectatorData[i].winnings += prize3;
+      }
+      updateSpectatorBoard();
+    }
+
+    function updateSpectatorBoard() {
+      const board = document.getElementById("spectatorLeaderboard");
+      board.innerHTML = "<h4>📣 Spectator Standings</h4>" + spectatorData
+        .filter(s => s.name)
+        .map(s => `${s.name}: $${s.winnings}`)
+        .join("<br>");
+    }
+
+    function resetSpectators() {
+      spectatorData = Array(40).fill({name: "", horse: 0, winnings: 0});
+      buildSpectatorGrid();
+      updateSpectatorBoard();
+    }
+
+    window.onload = () => {
+      horseNames = Array.from({length: 6}, (_, i) => "Horse " + (i+1));
+      buildTrack();
+      buildSpectatorGrid();
+    };
+  </script>
+</body>
+</html>
